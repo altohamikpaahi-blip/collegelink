@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <title>تفاصيل الخطاب: {{ document.title }}</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 text-gray-850">
+    <header class="bg-blue-950 text-white p-4 shadow-md flex justify-between items-center">
+        <div>
+            <h1 class="text-lg font-bold">تفاصيل المعاملة الرسمية</h1>
+            <p class="text-xs text-blue-200">الرقم المرجعي: {{ document.reference_number|default:"مسودة (غير مصدرة)" }}</p>
+        </div>
+        <div class="flex items-center gap-3">
+            {% if document.status == 'sent' and user.college == document.recipient_college %}
+                <a href="{% url 'reply_document' document.id %}" class="bg-green-600 hover:bg-green-700 text-white px-4 py-1.5 rounded text-sm font-bold shadow transition">
+                    الرد على الخطاب
+                </a>
+            {% endif %}
+            <a href="{% url 'dashboard' %}" class="bg-gray-600 hover:bg-gray-700 text-white px-4 py-1.5 rounded text-sm font-bold transition">رجوع للوحة المراسلات</a>
+        </div>
+    </header>
+
+    <main class="max-w-4xl mx-auto p-6 mt-6 grid grid-cols-1 md:grid-cols-3 gap-6">
+        <!-- تفاصيل الخطاب الرئيسية -->
+        <div class="bg-white p-6 rounded-lg shadow md:col-span-2 space-y-6">
+            <div>
+                <span class="text-xs font-bold text-gray-400 block mb-1">الموضوع</span>
+                <h2 class="text-xl font-bold text-blue-950">{{ document.title }}</h2>
+            </div>
+
+            <div>
+                <span class="text-xs font-bold text-gray-400 block mb-1">نص الخطاب</span>
+                <div class="p-4 bg-gray-50 rounded border text-sm leading-relaxed whitespace-pre-wrap">
+                    {{ document.content }}
+                </div>
+            </div>
+
+            <!-- المرفقات -->
+            <div>
+                <span class="text-xs font-bold text-gray-400 block mb-2">المرفقات المصاحبة</span>
+                {% if document.attachments.all %}
+                    <div class="space-y-2">
+                        {% for attach in document.attachments.all %}
+                            <div class="flex justify-between items-center p-3 bg-blue-50 rounded border border-blue-100">
+                                <span class="text-xs text-blue-900 font-medium">{{ attach }}</span>
+                                <a href="{{ attach.file.url }}" target="_blank" class="bg-blue-900 hover:bg-blue-800 text-white px-3 py-1 rounded text-xs font-bold shadow transition">
+                                    تحميل/عرض الملف
+                                </a>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="text-xs text-gray-400 italic">لا توجد مرفقات مصاحبة لهذا الخطاب.</p>
+                {% endif %}
+            </div>
+
+            <!-- ميزة التوجيه الداخلي للأقسام الأكاديمية (تظهر فقط لعميد أو إدارة الكلية المستقبلة) -->
+            {% if document.status == 'sent' and user.college == document.recipient_college and user.role in 'admin,dean,secretary' %}
+                <div class="pt-6 border-t space-y-4">
+                    <h3 class="font-bold text-sm text-blue-900">توجيه الخطاب داخلياً لقسم أكاديمي</h3>
+                    <form method="post" action="{% url 'forward_document' document.id %}" class="space-y-4 bg-gray-50 p-4 rounded border">
+                        {% csrf_token %}
+                        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-gray-700 text-xs font-bold mb-1">اختر القسم المستهدف:</label>
+                                <select name="department" class="w-full px-3 py-1.5 border rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-500" required>
+                                    <option value="">-- اختر القسم الأكاديمي --</option>
+                                    {% for dept in user.college.departments.all %}
+                                        <option value="{{ dept.id }}">{{ dept.name }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div>
+                                <label class="block text-gray-700 text-xs font-bold mb-1">ملاحظات وتوجيهات العميد للقسم:</label>
+                                <input type="text" name="notes" placeholder="مثال: يرجى الإفادة والرد في أسرع وقت..." class="w-full px-3 py-1.5 border rounded text-xs focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            </div>
+                        </div>
+                        <button type="submit" class="bg-blue-900 hover:bg-blue-800 text-white px-4 py-1.5 rounded text-xs font-bold shadow transition">
+                            إرسال وتوجيه للقسم
+                        </button>
+                    </form>
+                </div>
+            {% endif %}
+
+            <!-- عرض التوجيهات الحالية داخل المعاملة -->
+            {% if document.forwards.all %}
+                <div class="pt-4 border-t space-y-3">
+                    <span class="text-xs font-bold text-gray-400 block mb-2">الأقسام الموجه إليها هذا الخطاب</span>
+                    <div class="space-y-2">
+                        {% for fwd in document.forwards.all %}
+                            <div class="p-3 bg-yellow-50 rounded border border-yellow-100 text-xs">
+                                <p class="font-bold text-yellow-950">موجّه إلى قسم: {{ fwd.department.name }}</p>
+                                {% if fwd.notes %}
+                                    <p class="text-gray-700 mt-1"><span class="font-bold text-gray-500">التوجيه:</span> "{{ fwd.notes }}"</p>
+                                {% endif %}
+                                <p class="text-[10px] text-gray-400 mt-1">بواسطة: {{ fwd.forwarded_by.get_full_name|default:fwd.forwarded_by.username }} | في: {{ fwd.timestamp|date:"Y-m-d H:i" }}</p>
+                            </div>
+                        {% endfor %}
+                    </div>
+                </div>
+            {% endif %}
+
+            <!-- قسم الردود المرتبطة بالخطاب -->
+            <div class="pt-4 border-t">
+                <span class="text-xs font-bold text-gray-400 block mb-2">الردود المرتبطة بهذه المعاملة</span>
+                {% if document.replies.all %}
+                    <div class="space-y-2">
+                        {% for reply in document.replies.all %}
+                            <div class="p-3 bg-gray-50 rounded border text-xs flex justify-between items-center">
+                                <div>
+                                    <p class="font-bold text-gray-800">{{ reply.title }}</p>
+                                    <p class="text-[10px] text-gray-500">بواسطة: {{ reply.sender_college.name }} | صادر رقم: {{ reply.reference_number }}</p>
+                                </div>
+                                <a href="{% url 'document_detail' reply.id %}" class="text-blue-900 hover:underline font-bold">عرض الرد ←</a>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="text-xs text-gray-400 italic">لا توجد ردود مسجلة على هذا الخطاب حتى الآن.</p>
+                {% endif %}
+            </div>
+        </div>
+
+        <!-- معلومات جانبية وتاريخ الحركة -->
+        <div class="space-y-6">
+            <!-- كرت البيانات -->
+            <div class="bg-white p-6 rounded-lg shadow space-y-4">
+                <h3 class="font-bold text-sm text-gray-700 border-b pb-2">بطاقة المعاملة</h3>
+                <div class="text-xs space-y-2">
+                    <p><span class="text-gray-400">الجهة المرسلة:</span> <strong class="text-gray-800">{{ document.sender_college.name }}</strong></p>
+                    <p><span class="text-gray-400 font-bold">الجهة المستقبلة:</span> <strong class="text-gray-800">{{ document.recipient_college.name }}</strong></p>
+                    <p><span class="text-gray-400">المنشئ:</span> <strong class="text-gray-800">{{ document.sender.get_full_name|default:document.sender.username }}</strong></p>
+                    <p><span class="text-gray-400">حالة الخطاب:</span> <span class="font-bold text-green-700">{{ document.get_status_display }}</span></p>
+                    <p><span class="text-gray-400">تاريخ الإنشاء:</span> <strong class="text-gray-600">{{ document.created_at|date:"Y-m-d H:i" }}</strong></p>
+                </div>
+            </div>
+
+            <!-- سجل التتبع والعمليات -->
+            <div class="bg-white p-6 rounded-lg shadow space-y-4">
+                <h3 class="font-bold text-sm text-gray-700 border-b pb-2">سجل حركة الخطاب</h3>
+                {% if document.history.all %}
+                    <div class="relative border-r pr-4 space-y-4 text-xs">
+                        {% for log in document.history.all %}
+                            <div class="relative">
+                                <div class="absolute -right-[21px] top-1 w-2.5 h-2.5 rounded-full bg-blue-900"></div>
+                                <p class="font-bold text-blue-950">{{ log.get_action_display }}</p>
+                                <p class="text-gray-500 text-[10px]">بواسطة: {{ log.user.get_full_name|default:log.user.username }}</p>
+                                <p class="text-gray-400 text-[10px]">{{ log.timestamp|date:"Y-m-d H:i" }}</p>
+                            </div>
+                        {% endfor %}
+                    </div>
+                {% else %}
+                    <p class="text-xs text-gray-400 italic">لا يوجد سجل حركات مسجل.</p>
+                {% endif %}
+            </div>
+        </div>
+    </main>
+</body>
+</html>
