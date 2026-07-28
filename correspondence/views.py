@@ -5,12 +5,12 @@ from django.views.generic.edit import CreateView
 from django.urls import reverse_lazy
 from django.core.exceptions import PermissionDenied
 from django.db.models import Q
-from users.models import College  # استيراد الكلية لاستبعادها في الـ View
+from users.models import College, UserProfile
 from .forms import DocumentForm
 from .models import Document, Attachment, DocumentHistory, Department, DocumentForward
 
 class DashboardView(LoginRequiredMixin, TemplateView):
-    """عرض لوحة معلومات المراسلات وجلب الوارد والصادر الخاص بكل كلية وقسم مع ميزة البحث"""
+    """عرض لوحة معلومات المراسلات مع تصفية الخصوصية للبريد الوارد لشخص محدد"""
     template_name = 'correspondence/dashboard.html'
 
     def get_context_data(self, **kwargs):
@@ -19,14 +19,19 @@ class DashboardView(LoginRequiredMixin, TemplateView):
         query = self.request.GET.get('q', '').strip()
 
         if user.college:
-            inbox_qs = Document.objects.filter(
-                recipient_college=user.college, 
-                status='sent'
-            )
-            outbox_qs = Document.objects.filter(
-                sender_college=user.college
-            )
+            # 1. تصفية صندوق الوارد المتقدمة لحماية الخصوصية
+            if user.role in ['admin', 'dean', 'secretary']:
+                inbox_qs = Document.objects.filter(recipient_college=user.college, status='sent')
+            else:
+                inbox_qs = Document.objects.filter(
+                    recipient_college=user.college, 
+                    status='sent'
+                ).filter(Q(recipient_user=user) | Q(recipient_user__isnull=True))
+
+            # 2. البريد الصادر للكلية
+            outbox_qs = Document.objects.filter(sender_college=user.college)
             
+            # تطبيق تصفية البحث
             if query:
                 inbox_qs = inbox_qs.filter(
                     Q(title__icontains=query) | 
@@ -43,10 +48,9 @@ class DashboardView(LoginRequiredMixin, TemplateView):
             context['inbox'] = inbox_qs.order_by('-created_at')
             context['outbox'] = outbox_qs.order_by('-created_at')
 
+            # 3. الخطابات الموجهة لقسم المستخدم
             if user.department:
-                dept_forwards_qs = DocumentForward.objects.filter(
-                    department=user.department
-                )
+                dept_forwards_qs = DocumentForward.objects.filter(department=user.department)
                 if query:
                     dept_forwards_qs = dept_forwards_qs.filter(
                         Q(document__title__icontains=query) | 
@@ -64,7 +68,7 @@ class DashboardView(LoginRequiredMixin, TemplateView):
 
 
 class CreateDocumentView(LoginRequiredMixin, CreateView):
-    """إنشاء وإرسال خطاب رسمي جديد مع تصفية قائمة المستقبلين وحماية برمجية ضد الانهيار"""
+    """إنشاء وإرسال خطاب رسمي جديد مع تصفية قائمة المستقبلين برمجياً"""
     model = Document
     form_class = DocumentForm
     template_name = 'correspondence/create_document.html'
@@ -75,12 +79,11 @@ class CreateDocumentView(LoginRequiredMixin, CreateView):
         user = self.request.user
         if user and user.college:
             form.fields['recipient_college'].queryset = College.objects.exclude(id=user.college.id)
+            form.fields['recipient_user'].queryset = UserProfile.objects.exclude(college=user.college)
         return form
 
     def form_valid(self, form):
         user = self.request.user
-        
-        # حماية برمجية: التحقق من انتساب الموظف الحالي لكلية ومنع انهيار الخادم
         if not getattr(user, 'college', None):
             raise PermissionDenied("عذراً، يجب ربط حسابك بكلية من لوحة التحكم أولاً لتتمكن من إرسال الخطابات الرسمية.")
             
@@ -111,11 +114,19 @@ class CreateDocumentView(LoginRequiredMixin, CreateView):
 
 
 class ReplyDocumentView(LoginRequiredMixin, CreateView):
-    """إنشاء وإرسال خطاب رد مع تعبئة الحقول تلقائياً وحماية برمجية ضد الانهيار"""
+    """إنشاء وإرسال خطاب رد مع تعبئة الحقول تلقائياً وتصفيتها"""
     model = Document
     form_class = DocumentForm
     template_name = 'correspondence/create_document.html'
     success_url = reverse_lazy('dashboard')
+
+    def get_form(self, form_class=None):
+        form = super().get_form(form_class)
+        user = self.request.user
+        if user and user.college:
+            form.fields['recipient_college'].queryset = College.objects.exclude(id=user.college.id)
+            form.fields['recipient_user'].queryset = UserProfile.objects.exclude(college=user.college)
+        return form
 
     def get_initial(self):
         initial = super().get_initial()
@@ -123,22 +134,15 @@ class ReplyDocumentView(LoginRequiredMixin, CreateView):
         parent_doc = Document.objects.get(id=parent_id)
         
         initial['recipient_college'] = parent_doc.sender_college
+        initial['recipient_user'] = parent_doc.sender
         initial['title'] = f"رد على: {parent_doc.title}"
         return initial
-
-    def get_form(self, form_class=None):
-        form = super().get_form(form_class)
-        user = self.request.user
-        if user and user.college:
-            form.fields['recipient_college'].queryset = College.objects.exclude(id=user.college.id)
-        return form
 
     def form_valid(self, form):
         user = self.request.user
         parent_id = self.kwargs.get('parent_id')
         parent_doc = Document.objects.get(id=parent_id)
         
-        # حماية برمجية للردود أيضاً لمنع الانهيار المفاجئ
         if not getattr(user, 'college', None):
             raise PermissionDenied("عذراً، يجب ربط حسابك بكلية من لوحة التحكم أولاً لتتمكن من الرد على الخطابات الرسمية.")
             
@@ -168,7 +172,7 @@ class ReplyDocumentView(LoginRequiredMixin, CreateView):
 
 
 class DocumentDetailView(LoginRequiredMixin, DetailView):
-    """عرض تفاصيل الخطاب مع التحقق من صلاحيات الأطراف لحماية الخصوصية"""
+    """عرض تفاصيل الخطاب مع ميزة تحديث مؤشر القراءة تلقائياً"""
     model = Document
     template_name = 'correspondence/document_detail.html'
     context_object_name = 'document'
@@ -180,6 +184,11 @@ class DocumentDetailView(LoginRequiredMixin, DetailView):
         # حماية خصوصية الكليات
         if user.college not in [obj.sender_college, obj.recipient_college]:
             raise PermissionDenied("عذراً، ليس لديك الصلاحية للاطلاع على هذا الخطاب.")
+            
+        # تحديث ذكي ومؤمن: إذا كان المستخدم الحالي ينتمي للكلية المستقبلة، والخطاب غير مقروء، يتم تحويله لمقروء فوراً وحفظه
+        if user.college == obj.recipient_college and not obj.is_read:
+            obj.is_read = True
+            obj.save(update_fields=['is_read']) # تحديث حقل القراءة فقط في قاعدة البيانات لسرعة استجابة السيرفر
             
         return obj
 
