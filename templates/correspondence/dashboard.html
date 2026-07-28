@@ -42,7 +42,7 @@
         </a>
     </div>
 
-    <!-- ميزة جديدة: قسم عرض الخطابات الموجهة للقسم (تظهر فقط لرؤساء وموظفي الأقسام الأكاديمية) -->
+    <!-- قسم عرض الخطابات الموجهة للقسم الأكاديمي -->
     {% if user.department and department_forwards %}
         <div class="max-w-7xl mx-auto px-6 pt-6">
             <div class="bg-yellow-50 p-6 rounded-lg shadow border border-yellow-200">
@@ -70,8 +70,22 @@
             {% if inbox %}
                 <div class="space-y-3">
                     {% for doc in inbox %}
-                        <a href="{% url 'document_detail' doc.id %}" class="block p-3 bg-gray-50 rounded border hover:shadow-md hover:border-blue-300 transition">
-                            <h3 class="font-bold text-sm text-blue-950">{{ doc.title }}</h3>
+                        <a href="{% url 'document_detail' doc.id %}" class="block p-3 rounded border hover:shadow-md hover:border-blue-300 transition relative
+                            {% if not doc.is_read %} bg-blue-50/70 border-blue-200 {% else %} bg-gray-50 border-gray-200 {% endif %}">
+                            
+                            <div class="flex justify-between items-center">
+                                <h3 class="font-bold text-sm text-blue-950">
+                                    {{ doc.title }}
+                                </h3>
+                                <!-- نقطة زرقاء وامضة للخطاب الجديد غير المقروء -->
+                                {% if not doc.is_read %}
+                                    <span class="flex h-2.5 w-2.5 relative">
+                                        <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-600 opacity-75"></span>
+                                        <span class="relative inline-flex rounded-full h-2.5 w-2.5 bg-blue-600"></span>
+                                    </span>
+                                {% endif %}
+                            </div>
+                            
                             <p class="text-xs text-gray-500 mt-1">المرسل: {{ doc.sender_college.name }} | الرقم المرجعي: {{ doc.reference_number }}</p>
                             <span class="text-[10px] text-gray-400">{{ doc.created_at|date:"Y-m-d H:i" }}</span>
                         </a>
@@ -94,12 +108,23 @@
                                 <span class="px-2 py-0.5 rounded text-[10px] font-bold 
                                     {% if doc.status == 'sent' %} bg-green-100 text-green-800 
                                     {% elif doc.status == 'pending' %} bg-yellow-100 text-yellow-800 
-                                    {% else %} bg-gray-200 text-gray-700 {% endif %}">
+                                    ```                 {% else %} bg-gray-200 text-gray-700 {% endif %}">
                                     {{ doc.get_status_display }}
                                 </span>
                             </div>
                             <p class="text-xs text-gray-500 mt-1">المستقبل: {{ doc.recipient_college.name }} {% if doc.reference_number %} | صادر رقم: {{ doc.reference_number }} {% endif %}</p>
-                            <span class="text-[10px] text-gray-400">{{ doc.created_at|date:"Y-m-d H:i" }}</span>
+                            
+                            <!-- مؤشر القراءة الذكي يوضح للمرسل هل تم قراءة خطابه من المستقبل أم لا -->
+                            <div class="flex justify-between items-center mt-2 pt-1 border-t border-gray-100 text-[10px]">
+                                <span class="text-gray-400">{{ doc.created_at|date:"Y-m-d H:i" }}</span>
+                                {% if doc.status == 'sent' %}
+                                    {% if doc.is_read %}
+                                        <span class="text-green-600 font-bold flex items-center gap-1">✓✓ تمت القراءة</span>
+                                    {% else %}
+                                        <span class="text-gray-400 font-bold flex items-center gap-1">✓ غير مقروء بعد</span>
+                                    {% endif %}
+                                {% endif %}
+                            </div>
                         </a>
                     {% endfor %}
                 </div>
