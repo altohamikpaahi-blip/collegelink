@@ -1,7 +1,7 @@
 import os
 from django.db import models
 from django.conf import settings
-from users.models import College, Department  # استيراد القسم الكلي أيضاً
+from users.models import College, Department
 
 class Document(models.Model):
     STATUS_CHOICES = [
@@ -34,6 +34,15 @@ class Document(models.Model):
         verbose_name="الكلية المستقبلة"
     )
     
+    recipient_user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='received_documents',
+        null=True,
+        blank=True,
+        verbose_name="المستلم (الموظف المحدد)"
+    )
+    
     status = models.CharField(
         max_length=20, 
         choices=STATUS_CHOICES, 
@@ -49,7 +58,6 @@ class Document(models.Model):
         verbose_name="الرقم المرجعي (الصادر)"
     )
     
-    # حقل الربط بالخطاب الأصلي لتمكين الردود
     parent = models.ForeignKey(
         'self', 
         on_delete=models.SET_NULL, 
@@ -58,6 +66,9 @@ class Document(models.Model):
         related_name='replies', 
         verbose_name="الخطاب الأصلي"
     )
+    
+    # الحقل الجديد لمؤشر القراءة
+    is_read = models.BooleanField(default=False, verbose_name="تمت القراءة")
     
     created_at = models.DateTimeField(auto_now_add=True, verbose_name="تاريخ الإنشاء")
     updated_at = models.DateTimeField(auto_now=True, verbose_name="تاريخ التحديث")
@@ -123,7 +134,6 @@ class DocumentHistory(models.Model):
 
 
 class DocumentForward(models.Model):
-    """نموذج لتخزين حركات توجيه الخطابات للأقسام الأكاديمية"""
     document = models.ForeignKey(
         Document, 
         on_delete=models.CASCADE, 
